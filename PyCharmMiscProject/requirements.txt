@@ -1,0 +1,9 @@
+streamlit
+google-generativeai
+pydantic
+pillow
+matplotlib
+numpy
+fpdf
+gtts
+streamlit-mic-recorder
