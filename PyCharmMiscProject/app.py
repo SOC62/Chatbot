@@ -1,7 +1,6 @@
 import streamlit as st
 import json
 import sqlite3
-import time
 import re
 import io
 import os
@@ -11,7 +10,7 @@ from typing import List, Optional
 # --- LIBRARY PREMIUM ---
 import google.generativeai as genai
 from PIL import Image
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel
 import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF
@@ -30,45 +29,41 @@ except ImportError:
 st.set_page_config(page_title="SkoolMath AI", layout="wide", page_icon="🧠")
 
 # ==========================================
+# 2. KONFIGURASI API (SAFE MODE)
 # ==========================================
-# ==========================================
-# 2. KONFIGURASI API (AUTO DETECT)
-# ==========================================
-import os
-
-# Cek apakah ada kunci di Brankas Streamlit (Secrets)
+# Prioritas: Ambil dari Secrets (Cloud). Jika tidak ada, cek Environment Variable.
 if "GOOGLE_API_KEY" in st.secrets:
-    API_KEY = st.secrets["GOOGLE_API_KEY"] # Kita pakai nama API_KEY
+    API_KEY = st.secrets["GOOGLE_API_KEY"]
 else:
-    # Fallback saat run di laptop (String kosong agar tidak error saat start awal)
     API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
-# Konfigurasi Google AI dengan kunci yang ditemukan
-try:
-    genai.configure(api_key=API_KEY)
-except Exception as e:
-    st.error(f"Error Konfigurasi API: {e}")
-    
+# Validasi awal (jangan crash, simpan statusnya saja)
+API_READY = False
+if API_KEY and "MASUKKAN" not in API_KEY:
+    try:
+        genai.configure(api_key=API_KEY)
+        API_READY = True
+    except Exception as e:
+        st.error(f"⚠️ Konfigurasi API Gagal: {e}")
+
 # ==========================================
-# 3. DESIGN CSS (ANIMATED & FUTURISTIC)
+# 3. DESIGN CSS (ANIMATED)
 # ==========================================
 def set_design():
     st.markdown("""
     <style>
-    /* --- 1. ANIMASI BACKGROUND BERGERAK --- */
+    /* Background Bergerak */
     @keyframes gradient-animation {
         0% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
         100% { background-position: 0% 50%; }
     }
-
     .stApp {
         background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
         background-size: 400% 400%;
         animation: gradient-animation 15s ease infinite;
     }
-    
-    /* --- 2. DEKORASI KARTU PUTIH KACA --- */
+    /* Kartu Chat Glassmorphism */
     div[data-testid="stChatMessage"] {
         background: rgba(255, 255, 255, 0.85);
         backdrop-filter: blur(12px);
@@ -78,15 +73,7 @@ def set_design():
         margin-bottom: 10px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
-    
-    h1 {
-        color: white;
-        text-shadow: 0 0 10px rgba(0,0,0,0.3);
-        font-weight: 800;
-        letter-spacing: 1px;
-    }
-    
-    /* --- 3. GARIS PELANGI ANIMASI --- */
+    /* Rainbow Line */
     .rainbow-line {
         height: 6px;
         border-radius: 10px;
@@ -95,41 +82,26 @@ def set_design():
         animation: slide 3s linear infinite;
         margin-top: 15px;
         margin-bottom: 25px;
-        box-shadow: 0 0 15px rgba(255,255,255,0.6);
     }
-    @keyframes slide {
-        to { background-position: 200% center; }
-    }
-
-    /* --- 4. TOMBOL ALAT (PULSE) --- */
-    @keyframes pulse-white {
-        0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
-        70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
-    }
-
+    @keyframes slide { to { background-position: 200% center; } }
+    
+    /* Tombol Popover */
     div[data-testid="stPopover"] > button {
         background-color: white !important;
         color: #333 !important;
         border: none !important;
         border-radius: 50px !important;
         font-weight: bold !important;
-        animation: pulse-white 2s infinite;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1) !important;
         transition: transform 0.2s;
     }
     div[data-testid="stPopover"] > button:hover {
         transform: scale(1.05);
         color: #e73c7e !important;
     }
-    div[data-testid="stPopover"] > button * {
-        fill: #333 !important;
-        color: #333 !important;
-    }
-    
     /* Text Color Fix */
-    p, span, div, h2, h3 {
-        color: #2c3e50;
-    }
+    p, span, div, h1, h2, h3 { color: #2c3e50; }
+    h1 { color: white; text-shadow: 0 0 10px rgba(0,0,0,0.3); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -183,27 +155,14 @@ init_db()
 # 5. SYSTEM PROMPT & SCHEMA
 # ==========================================
 SYSTEM_PROMPT = """
-INSTRUKSI SISTEM:
-Anda adalah AI Math Tutor Premium. 
-Tugas: Menyelesaikan masalah matematika (Teks/Gambar) & Output JSON STRICT.
+INSTRUKSI: Anda adalah AI Math Tutor. Selesaikan soal (Teks/Gambar) & Output JSON STRICT.
+FITUR: Plot expression untuk fungsi, 3 soal latihan mirip, penjelasan Bahasa Indonesia.
 
-FITUR PREMIUM:
-1. Jika soal adalah fungsi (y=..., f(x)=...), isi field 'plot_expression' dengan sintaks Python NumPy valid.
-2. Isi field 'practice_problems' dengan 3 soal mirip.
-3. Penjelasan Bahasa Indonesia detail.
-
-STRUKTUR JSON TARGET:
+FORMAT JSON:
 {
   "answer": { "text": "...", "latex": "...", "format": "numeric" },
-  "solution": { 
-      "steps": ["..."], 
-      "plot_expression": "None atau rumus numpy valid" 
-  },
-  "pedagogy": { 
-      "hints": ["..."], 
-      "common_mistakes": ["..."],
-      "practice_problems": ["Soal 1", "Soal 2", "Soal 3"]
-  },
+  "solution": { "steps": ["..."], "plot_expression": "None atau rumus numpy valid" },
+  "pedagogy": { "hints": ["..."], "common_mistakes": ["..."], "practice_problems": ["..."] },
   "metadata": { "created_at": "..." }
 }
 """
@@ -225,15 +184,15 @@ def generate_pdf(data_dict, user_soal):
     pdf.cell(200, 10, txt="Solusi SkoolMath AI", ln=True, align='C')
     pdf.ln(10)
     pdf.set_font("Arial", 'B', size=12)
-    pdf.cell(0, 10, f"Soal: {user_soal}", ln=True)
+    pdf.cell(0, 10, f"Soal: {user_soal[:100]}...", ln=True)
     pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, f"Jawaban Akhir: {data_dict['answer']['text']}")
+    pdf.multi_cell(0, 10, f"Jawaban: {data_dict['answer']['text']}")
     pdf.ln(5)
     pdf.set_font("Arial", 'B', size=12)
-    pdf.cell(0, 10, "Langkah Penyelesaian:", ln=True)
+    pdf.cell(0, 10, "Langkah:", ln=True)
     pdf.set_font("Arial", size=11)
     for i, step in enumerate(data_dict['solution']['steps']):
-        clean_step = step.replace("∫", "int").replace("²", "^2").encode('latin-1', 'replace').decode('latin-1')
+        clean_step = step.replace("∫", "int").encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 8, f"{i+1}. {clean_step}")
     return pdf.output(dest='S').encode('latin-1')
 
@@ -246,47 +205,57 @@ def generate_audio(text):
     except: return None
 
 # ==========================================
-# ==========================================
-# 7. LOGIKA AI
+# 7. LOGIKA AI (ROBUST)
 # ==========================================
 def get_ai_response(user_input, image_input=None):
-    # --- PERBAIKAN LOGIKA PENGECEKAN KUNCI ---
-    # 1. Cek jika API_KEY kosong (None atau string kosong)
-    if not API_KEY:
-        return json.dumps({"error": "⚠️ API KEY Kosong! Harap isi di Secrets."}), "Error Config"
-    
-    # 2. Cek jika masih pakai placeholder default (MASUKKAN_KEY...)
-    if "MASUKKAN_KEY" in API_KEY:
-         return json.dumps({"error": "⚠️ API KEY Belum Diisi dengan Benar!"}), "Error Config"
-    # -----------------------------------------
+    # Cek Kesiapan API
+    if not API_READY:
+        return json.dumps({"error": "⚠️ API Key bermasalah/expired. Cek Secrets Streamlit."}), "Error API"
 
+    # RAG Logic
     soal_mirip, jawaban_mirip = search_memory(user_input) if user_input else (None, None)
-    # ... (lanjutkan kode di bawahnya seperti biasa: rag_context = "" ...)
+    rag_context = ""
+    debug_msg = "🧠 Logika Baru"
+    if soal_mirip:
+        debug_msg = f"📚 Memori: Mirip '{soal_mirip[:15]}...'"
+        rag_context = f"[CONTOH LALU]\nSoal: {soal_mirip}\nJawab: {jawaban_mirip}\nTIRU FORMAT."
+
+    final_prompt = f"{SYSTEM_PROMPT}\n{rag_context}\n\nUSER INPUT:\n{user_input}"
+
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
+        if image_input:
+            debug_msg += " + 👁️ Vision"
+            response = model.generate_content([final_prompt, image_input])
+        else:
+            response = model.generate_content(final_prompt)
+        return response.text, debug_msg
+    except Exception as e:
+        # Tangkap error detail dari Google
+        return json.dumps({"error": f"Server Error: {str(e)}"}), "Error System"
 
 # ==========================================
-# 8. LAYOUT UTAMA (STRUCTURED)
+# 8. LAYOUT & LOGIKA UTAMA
 # ==========================================
-
-# --- A. HEADER ---
 st.title("🧠 SkoolMath AI | 2.0")
 st.caption("Powered By: Gemini Flash")
 
-# --- B. DISPLAY CHAT ---
+# Container Chat
 chat_container = st.container()
 
+# State Management
 if "messages" not in st.session_state: st.session_state.messages = []
+if "last_uploaded_file" not in st.session_state: st.session_state.last_uploaded_file = None
 
-# Variabel State untuk Mencegah Loop Upload
-if "last_uploaded_file" not in st.session_state:
-    st.session_state.last_uploaded_file = None
-
+# Tampilkan Chat
 with chat_container:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             if message["role"] == "assistant":
                 try:
                     data = json.loads(message["content"])
-                    if "error" in data: st.error(data["error"])
+                    if "error" in data: 
+                        st.error(data["error"])
                     else:
                         st.write(f"**Jawab:** {data['answer']['text']}")
                         with st.expander("📝 Langkah"):
@@ -294,25 +263,26 @@ with chat_container:
                 except: st.write(message["content"])
             else: st.write(message["content"])
     st.write(" ") 
-    st.write(" ")
 
-# --- C. CONTROL BAR (ALAT + GARIS WARNA) ---
+# --- TOOLBAR ---
 st.markdown('<div class="rainbow-line"></div>', unsafe_allow_html=True)
-
 c_tools, c_info = st.columns([1.5, 5]) 
 
+image_data = None  # Default value agar tidak error "undefined"
+uploaded_file = None
+voice_text = None
+
 with c_tools:
-    with st.popover("📎 Buka Alat Input", use_container_width=True):
+    with st.popover("📎 Alat Input", use_container_width=True):
         st.write("### 📸 Upload & Suara")
         uploaded_file = st.file_uploader("Upload Soal", type=["jpg", "png", "jpeg"])
-        image_data = None
+        
         if uploaded_file:
             image_data = Image.open(uploaded_file)
-            st.success("✅ Foto Siap!")
+            st.success("Foto Oke!")
             st.image(image_data, caption="Preview", use_container_width=True)
         
         st.divider()
-        voice_text = None
         if MIC_AVAILABLE:
             st.write("🎙️ **Rekam**")
             voice_text = speech_to_text(language='id', start_prompt="🔴 Rekam", stop_prompt="⏹️ Stop")
@@ -322,63 +292,56 @@ with c_tools:
             try:
                 os.remove("math_premium.db"); init_db()
                 st.session_state.messages = []
-                st.session_state.last_uploaded_file = None # Reset state file juga
+                st.session_state.last_uploaded_file = None
                 st.rerun()
             except: pass
 
 with c_info:
-    if uploaded_file:
-        st.info(f"📸 Foto terlampir: {uploaded_file.name}")
-    elif voice_text:
-        st.info(f"🎙️ Suara terdeteksi: '{voice_text}'")
-    else:
-        st.caption("💡 Tips: Klik tombol '📎 Buka Alat Input' di kiri untuk upload foto atau rekam suara.")
+    if uploaded_file: st.info(f"📸 File: {uploaded_file.name}")
+    elif voice_text: st.info(f"🎙️ Suara: '{voice_text}'")
+    else: st.caption("Klik tombol '📎 Alat Input' untuk upload foto/rekam suara.")
 
-# --- D. INPUT UTAMA ---
-user_query = st.chat_input("Ketik soal matematika di sini...")
+# --- INPUT & EKSEKUSI ---
+user_query = st.chat_input("Ketik soal matematika...")
 
-# --- LOGIKA EKSEKUSI (ANTI LOOP FIX) ---
 final_input = None
 
-# Prioritas 1: Input Suara
+# Prioritas Input
 if voice_text: 
     final_input = voice_text
-
-# Prioritas 2: Input Teks Manual
 elif user_query: 
     final_input = user_query
-
-# Prioritas 3: Upload Gambar (HANYA JIKA BELUM DIPROSES)
-elif uploaded_file and not user_query and not voice_text:
-    # Cek apakah file ini sudah diproses sebelumnya?
+elif uploaded_file and image_data:
+    # Cek Loop
     if st.session_state.last_uploaded_file != uploaded_file.name:
         final_input = "Selesaikan soal di gambar ini."
-        # Tandai file ini sudah diproses agar tidak looping
         st.session_state.last_uploaded_file = uploaded_file.name
     else:
-        final_input = None # Jangan lakukan apa-apa jika file sama
+        final_input = None
 
 if final_input:
+    # Simpan user input
     st.session_state.messages.append({"role": "user", "content": final_input})
     st.rerun()
 
-# Logic Proses Jawaban AI
+# Proses Jawaban (JIKA pesan terakhir dari USER)
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_msg = st.session_state.messages[-1]["content"]
     
     with st.chat_message("assistant"):
-        with st.spinner("⏳ AI sedang bekerja..."):
+        with st.spinner("⏳ Sedang berpikir..."):
+            # PANGGIL FUNGSI UTAMA (Di sini error Anda sebelumnya)
+            # image_data otomatis None jika tidak ada upload, jadi aman.
             raw_res, debug_info = get_ai_response(last_msg, image_data)
+            
             cleaned_res = clean_json_output(raw_res)
 
             try:
                 data = json.loads(cleaned_res)
-                if "error" in data: st.error(data['error'])
+                if "error" in data:
+                    st.error(data['error']) # Tampilkan error API cantik
                 else:
-                    if "metadata" not in data: data["metadata"] = {}
-                    validated = MathSchema(**data)
                     save_to_memory(last_msg, cleaned_res)
-
                     st.caption(debug_info)
                     st.success(f"**Jawaban:** {data['answer']['text']}")
                     
@@ -395,9 +358,10 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                             except: pass
 
                     c1, c2 = st.columns(2)
-                    with c1: st.info("**💡 Tips:**\n" + "\n".join([f"- {h}" for h in data['pedagogy']['hints']]))
-                    with c2: st.warning("**⚠️ Salah Kaprah:**\n" + "\n".join([f"- {m}" for m in data['pedagogy']['common_mistakes']]))
+                    with c1: st.info("**Tips:**\n" + "\n".join([f"- {h}" for h in data['pedagogy']['hints']]))
+                    with c2: st.warning("**Hati-hati:**\n" + "\n".join([f"- {m}" for m in data['pedagogy']['common_mistakes']]))
                     
+                    # PDF & Audio
                     col_pdf, col_audio = st.columns(2)
                     with col_pdf:
                         try:
@@ -410,9 +374,8 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                             audio_fp.seek(0)
                             st.audio(audio_fp, format='audio/mp3')
 
+                    # Simpan ke history
                     st.session_state.messages.append({"role": "assistant", "content": json.dumps(data)})
                     st.rerun()
-            except Exception as e: st.error(f"Error: {e}")
-
-
-
+            except Exception as e:
+                st.error(f"Error Parsing: {e}\nRaw: {cleaned_res}")
