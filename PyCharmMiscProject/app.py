@@ -268,7 +268,7 @@ def get_ai_response(user_input, image_input=None):
 
 # --- A. HEADER ---
 st.title("🧠 SkoolMath AI | 2.0")
-st.caption("Asisten Matematika Cerdas: Vision, Suara & Grafik")
+st.caption("Powered By: Gemini Flash")
 
 # --- B. DISPLAY CHAT ---
 chat_container = st.container()
@@ -412,3 +412,4 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.session_state.messages.append({"role": "assistant", "content": json.dumps(data)})
                     st.rerun()
             except Exception as e: st.error(f"Error: {e}")
+
