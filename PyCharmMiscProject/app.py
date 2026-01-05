@@ -31,22 +31,24 @@ st.set_page_config(page_title="SkoolMath AI", layout="wide", page_icon="🧠")
 
 # ==========================================
 # ==========================================
-# 2. KONFIGURASI API (MODE AMAN/SECRETS)
+# ==========================================
+# 2. KONFIGURASI API (AUTO DETECT)
 # ==========================================
 import os
 
 # Cek apakah ada kunci di Brankas Streamlit (Secrets)
 if "GOOGLE_API_KEY" in st.secrets:
-    SECRET_KEY = st.secrets["GOOGLE_API_KEY"]
+    API_KEY = st.secrets["GOOGLE_API_KEY"] # Kita pakai nama API_KEY
 else:
-    # Ini hanya untuk fallback saat run di laptop (Opsional)
-    # Jangan tulis key asli disini jika mau upload ke GitHub lagi!
-    SECRET_KEY = os.getenv("GOOGLE_API_KEY", "")
+    # Fallback saat run di laptop (String kosong agar tidak error saat start awal)
+    API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
+# Konfigurasi Google AI dengan kunci yang ditemukan
 try:
-    genai.configure(api_key=SECRET_KEY)
+    genai.configure(api_key=API_KEY)
 except Exception as e:
     st.error(f"Error Konfigurasi API: {e}")
+    
 # ==========================================
 # 3. DESIGN CSS (ANIMATED & FUTURISTIC)
 # ==========================================
@@ -244,31 +246,22 @@ def generate_audio(text):
     except: return None
 
 # ==========================================
+# ==========================================
 # 7. LOGIKA AI
 # ==========================================
 def get_ai_response(user_input, image_input=None):
+    # --- PERBAIKAN LOGIKA PENGECEKAN KUNCI ---
+    # 1. Cek jika API_KEY kosong (None atau string kosong)
+    if not API_KEY:
+        return json.dumps({"error": "⚠️ API KEY Kosong! Harap isi di Secrets."}), "Error Config"
+    
+    # 2. Cek jika masih pakai placeholder default (MASUKKAN_KEY...)
     if "MASUKKAN_KEY" in API_KEY:
-         return json.dumps({"error": "⚠️ API KEY BELUM DIISI!"}), "Error Config"
+         return json.dumps({"error": "⚠️ API KEY Belum Diisi dengan Benar!"}), "Error Config"
+    # -----------------------------------------
 
     soal_mirip, jawaban_mirip = search_memory(user_input) if user_input else (None, None)
-    rag_context = ""
-    debug_msg = "🧠 Logika Baru"
-    if soal_mirip:
-        debug_msg = f"📚 RAG Aktif: Mirip '{soal_mirip[:20]}...'"
-        rag_context = f"[CONTOH LALU]\nSoal: {soal_mirip}\nJawab: {jawaban_mirip}\nTIRU FORMAT."
-
-    final_prompt = f"{SYSTEM_PROMPT}\n{rag_context}\n\nUSER INPUT:\n{user_input}"
-
-    try:
-        model = genai.GenerativeModel("gemini-2.5-flash", generation_config={"response_mime_type": "application/json"})
-        if image_input:
-            debug_msg += " + 👁️ Vision"
-            response = model.generate_content([final_prompt, image_input])
-        else:
-            response = model.generate_content(final_prompt)
-        return response.text, debug_msg
-    except Exception as e:
-        return json.dumps({"error": f"Error: {str(e)}"}), "Error System"
+    # ... (lanjutkan kode di bawahnya seperti biasa: rag_context = "" ...)
 
 # ==========================================
 # 8. LAYOUT UTAMA (STRUCTURED)
@@ -420,5 +413,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.session_state.messages.append({"role": "assistant", "content": json.dumps(data)})
                     st.rerun()
             except Exception as e: st.error(f"Error: {e}")
+
 
 
