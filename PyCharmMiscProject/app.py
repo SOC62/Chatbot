@@ -30,15 +30,23 @@ except ImportError:
 st.set_page_config(page_title="SkoolMath AI", layout="wide", page_icon="🧠")
 
 # ==========================================
-# 2. KONFIGURASI API (WAJIB DIISI)
 # ==========================================
-API_KEY = "AIzaSyCdnrVDnT6WuCHSHcu0HNP7dF2epWtNKms" 
+# 2. KONFIGURASI API (MODE AMAN/SECRETS)
+# ==========================================
+import os
+
+# Cek apakah ada kunci di Brankas Streamlit (Secrets)
+if "GOOGLE_API_KEY" in st.secrets:
+    SECRET_KEY = st.secrets["GOOGLE_API_KEY"]
+else:
+    # Ini hanya untuk fallback saat run di laptop (Opsional)
+    # Jangan tulis key asli disini jika mau upload ke GitHub lagi!
+    SECRET_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 try:
-    genai.configure(api_key=API_KEY)
+    genai.configure(api_key=SECRET_KEY)
 except Exception as e:
     st.error(f"Error Konfigurasi API: {e}")
-
 # ==========================================
 # 3. DESIGN CSS (ANIMATED & FUTURISTIC)
 # ==========================================
@@ -412,4 +420,5 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.session_state.messages.append({"role": "assistant", "content": json.dumps(data)})
                     st.rerun()
             except Exception as e: st.error(f"Error: {e}")
+
 
