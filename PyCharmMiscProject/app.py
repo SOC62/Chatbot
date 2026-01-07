@@ -223,7 +223,7 @@ def get_ai_response(user_input, image_input=None):
     final_prompt = f"{SYSTEM_PROMPT}\n{rag_context}\n\nUSER INPUT:\n{user_input}"
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash-latest", generation_config={"response_mime_type": "application/json"})
+        model = genai.GenerativeModel("gemini-1.5-flash-001", generation_config={"response_mime_type": "application/json"})
         if image_input:
             debug_msg += " + 👁️ Vision"
             response = model.generate_content([final_prompt, image_input])
@@ -379,5 +379,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.rerun()
             except Exception as e:
                 st.error(f"Error Parsing: {e}\nRaw: {cleaned_res}")
+
 
 
