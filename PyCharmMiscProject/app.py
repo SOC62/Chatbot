@@ -207,61 +207,70 @@ def generate_audio(text):
     except: return None
 
 # ==========================================
-# 7. LOGIKA AI (SMART SWITCHING & RETRY)
+# 7. LOGIKA AI (TRIPLE FALLBACK SYSTEM)
 # ==========================================
 def get_ai_response(user_input, image_input=None):
     if not API_READY:
-        return json.dumps({"error": "⚠️ API Key bermasalah. Cek Secrets."}), "Error API"
+        return json.dumps({"error": "⚠️ API Key bermasalah."}), "Error API"
 
-    # Context RAG
     soal_mirip, jawaban_mirip = search_memory(user_input) if user_input else (None, None)
     rag_context = ""
     debug_msg = "🧠 Logika"
     if soal_mirip:
-        debug_msg = f"📚 Memori + 🧠 Logika"
+        debug_msg = "📚 Memori"
         rag_context = f"[CONTOH LALU]\nSoal: {soal_mirip}\nJawab: {jawaban_mirip}\nTIRU FORMAT."
 
     final_prompt = f"{SYSTEM_PROMPT}\n{rag_context}\n\nUSER INPUT:\n{user_input}"
 
-    # DAFTAR MODEL PRIORITAS (Dari yang tercanggih ke yang termudah)
-    # Jika 2.0 Flash sibuk, otomatis turun ke Flash-Lite
-    model_list = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    # --- STRATEGI BARU: 3 LAPIS PERTAHANAN ---
+    # 1. Coba Lite (Paling Cepat)
+    # 2. Coba Flash 2.0 (Paling Canggih)
+    # 3. Coba Flash Latest/1.5 (Paling Stabil/Cadangan Mati)
+    model_list = [
+        "gemini-2.0-flash-lite", 
+        "gemini-2.0-flash", 
+        "gemini-flash-latest" 
+    ]
     
-    max_retries = 3
+    max_retries = 2 # Kesempatan per model
 
     for model_name in model_list:
         for attempt in range(max_retries):
             try:
-                # Coba pakai model saat ini
-                model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+                # Konfigurasi khusus: Matikan safety filter agar tidak error aneh-aneh di soal matematika
+                safe_config = [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ]
+                
+                model = genai.GenerativeModel(
+                    model_name, 
+                    generation_config={"response_mime_type": "application/json"},
+                    safety_settings=safe_config
+                )
                 
                 if image_input:
-                    # Vision request
                     response = model.generate_content([final_prompt, image_input])
                 else:
-                    # Text only request
                     response = model.generate_content(final_prompt)
                 
-                # JIKA BERHASIL, LANGSUNG KELUAR & KIRIM JAWABAN
+                # Sukses!
                 return response.text, f"{debug_msg} ({model_name})"
 
             except Exception as e:
                 error_str = str(e)
-                # Cek apakah errornya karena Limit (429)
-                if "429" in error_str or "quota" in error_str.lower():
-                    # Jika masih ada sisa nyawa (attempt), tunggu sebentar
-                    if attempt < max_retries - 1:
-                        time.sleep(2 * (attempt + 1)) # Tunggu 2 detik, 4 detik...
-                        continue 
-                    else:
-                        # Jika sudah 3x gagal di model ini, BREAK untuk coba model berikutnya (Lite)
-                        break 
+                # Cek Error Limit (429) atau Overloaded (503)
+                if "429" in error_str or "quota" in error_str.lower() or "503" in error_str:
+                    time.sleep(1 + attempt) # Jeda sebentar
+                    continue 
                 else:
-                    # Jika error lain (bukan limit), langsung nyerah
-                    return json.dumps({"error": f"Server Error: {error_str}"}), "Error System"
+                    # Jika error lain (misal JSON invalid), coba model lain saja jangan nyerah dulu
+                    break 
     
-    # Jika semua model di list sudah dicoba dan gagal semua
-    return json.dumps({"error": "⚠️ Server Sedang Penuh (Semua Model Sibuk). Silakan coba 1 menit lagi."}), "Error 429"
+    # Jika ke-3 model gagal semua
+    return json.dumps({"error": "⚠️ Server Google Sedang Sangat Sibuk. Mohon tunggu 1-2 menit lagi."}), "Error 429"
 
 # ==========================================
 # 8. LAYOUT & LOGIKA UTAMA
@@ -408,6 +417,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.rerun()
             except Exception as e:
                 st.error(f"Error Parsing: {e}\nRaw: {cleaned_res}")
+
 
 
 
