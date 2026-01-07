@@ -5,6 +5,7 @@ import sqlite3
 import re
 import io
 import os
+import time 
 from datetime import datetime
 from typing import List, Optional
 
@@ -407,6 +408,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.rerun()
             except Exception as e:
                 st.error(f"Error Parsing: {e}\nRaw: {cleaned_res}")
+
 
 
 
