@@ -1,20 +1,4 @@
-# --- TEMPELKAN KODE INI SEMENTARA DI BAGIAN ATAS APP.PY UNTUK CEK ---
-import google.generativeai as genai
-import streamlit as st
 
-st.warning(f"🔍 DIAGNOSIS SERVER:")
-st.write(f"👉 Versi Library Google: **{genai.__version__}**")
-st.write("(Harusnya versi 0.8.3 ke atas. Jika 0.3.x atau 0.4.x berarti SERVER BELUM UPDATE)")
-
-try:
-    st.write("👉 Daftar Model yang Tersedia:")
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            st.write(f"- `{m.name}`")
-except Exception as e:
-    st.error(f"Gagal list model: {e}")
-st.divider()
-# --------------------------------------------------------------------
 import streamlit as st
 import json
 import sqlite3
@@ -423,6 +407,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     st.rerun()
             except Exception as e:
                 st.error(f"Error Parsing: {e}\nRaw: {cleaned_res}")
+
 
 
 
